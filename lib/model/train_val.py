@@ -100,9 +100,10 @@ class SolverWrapper(object):
       # Set the random seed for tensorflow
       tf.set_random_seed(cfg.RNG_SEED)
       # Build the main computation graph
-      layers = self.net.create_architecture(sess, 'TRAIN', self.imdb.num_classes, tag='default',
+      mult_nets = self.net.create_mult_architecture(sess, 'TRAIN', [self.imdb.num_classes], tag='default',
                                             anchor_scales=cfg.ANCHOR_SCALES,
                                             anchor_ratios=cfg.ANCHOR_RATIOS)
+      layers = mult_nets[0]
       # Define the loss
       loss = layers['total_loss']
       # Set learning rate and momentum
@@ -222,17 +223,17 @@ class SolverWrapper(object):
       if now - last_summary_time > cfg.TRAIN.SUMMARY_INTERVAL:
         # Compute the graph with summary
         rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss, summary = \
-          self.net.train_step_with_summary(sess, blobs, train_op)
+          self.net.get_task_net(0).train_step_with_summary(sess, blobs, train_op)
         self.writer.add_summary(summary, float(iter))
         # Also check the summary on the validation set
         blobs_val = self.data_layer_val.forward()
-        summary_val = self.net.get_summary(sess, blobs_val)
+        summary_val = self.net.get_task_net(0).get_summary(sess, blobs_val)
         self.valwriter.add_summary(summary_val, float(iter))
         last_summary_time = now
       else:
         # Compute the graph without summary
         rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss = \
-          self.net.train_step(sess, blobs, train_op)
+          self.net.get_task_net(0).train_step(sess, blobs, train_op)
       timer.toc()
 
       # Display training information
