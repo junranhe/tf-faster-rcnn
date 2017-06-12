@@ -89,7 +89,7 @@ def combined_roidb(imdb_names):
 import os
 if __name__ == '__main__':
   args = parse_args()
-  os.environ['CUDA_VISIBLE_DEVICES'] = str(args["gpus"][0])
+  os.environ['CUDA_VISIBLE_DEVICES'] = args['gpus']
   #print('Called with args:')
   #print(args)
 

@@ -98,6 +98,7 @@ if __name__ == '__main__':
   print('Using config:')
   pprint.pprint(cfg)
 
+  #exit()
   np.random.seed(cfg.RNG_SEED)
 
   # train set
