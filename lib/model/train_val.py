@@ -99,6 +99,7 @@ class SolverWrapper(object):
     with sess.graph.as_default():
       # Set the random seed for tensorflow
       tf.set_random_seed(cfg.RNG_SEED)
+      '''
       # Build the main computation graph
       mult_nets = self.net.create_mult_architecture(sess, 'TRAIN', [self.imdb.num_classes], tag='default',
                                             anchor_scales=cfg.ANCHOR_SCALES,
@@ -127,7 +128,9 @@ class SolverWrapper(object):
         train_op = self.optimizer.apply_gradients(final_gvs)
       else:
         train_op = self.optimizer.apply_gradients(gvs)
-
+      '''
+      import nets.mult_utils as mult_utils
+      tasks, train_op ,lr, mult_nets = mult_utils.create_train_op(sess, [self.imdb.num_classes], 1)
       # We will handle the snapshots ourselves
       self.saver = tf.train.Saver(max_to_keep=100000)
       # Write the train and validation information to tensorboard
@@ -162,7 +165,7 @@ class SolverWrapper(object):
       sess.run(tf.variables_initializer(variables, name='init'))
       var_keep_dic = self.get_variables_in_checkpoint_file(self.pretrained_model)
       # Get the variables to restore, ignorizing the variables to fix
-      variables_to_restore = self.net.get_variables_to_restore(variables, var_keep_dic)
+      variables_to_restore =  mult_nets.get_variables_to_restore(variables, var_keep_dic)
 
       restorer = tf.train.Saver(variables_to_restore)
       restorer.restore(sess, self.pretrained_model)
@@ -170,7 +173,7 @@ class SolverWrapper(object):
       # Need to fix the variables before loading, so that the RGB weights are changed to BGR
       # For VGG16 it also changes the convolutional weights fc6 and fc7 to
       # fully connected weights
-      self.net.fix_variables(sess, self.pretrained_model)
+      mult_nets.fix_variables(sess, self.pretrained_model)
       print('Fixed.')
       sess.run(tf.assign(lr, cfg.TRAIN.LEARNING_RATE))
       last_snapshot_iter = 0
@@ -220,6 +223,7 @@ class SolverWrapper(object):
       blobs = self.data_layer.forward()
 
       now = time.time()
+      '''
       if now - last_summary_time > cfg.TRAIN.SUMMARY_INTERVAL:
         # Compute the graph with summary
         rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss, summary = \
@@ -234,13 +238,19 @@ class SolverWrapper(object):
         # Compute the graph without summary
         rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss = \
           self.net.get_task_net(0).train_step(sess, blobs, train_op)
+      '''
+      rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss = \
+        mult_utils.train_step(sess, tasks, [blobs], train_op) 
       timer.toc()
 
       # Display training information
       if iter % (cfg.TRAIN.DISPLAY) == 0:
-        print('iter: %d / %d, total loss: %.6f\n >>> rpn_loss_cls: %.6f\n '
-              '>>> rpn_loss_box: %.6f\n >>> loss_cls: %.6f\n >>> loss_box: %.6f\n >>> lr: %f' % \
-              (iter, max_iters, total_loss, rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, lr.eval()))
+        #print('iter: %d / %d, total loss: %.6f\n >>> rpn_loss_cls: %.6f\n '
+        #      '>>> rpn_loss_box: %.6f\n >>> loss_cls: %.6f\n >>> loss_box: %.6f\n >>> lr: %f' % \
+        #      (iter, max_iters, total_loss, rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, lr.eval()))
+        print('iter: %d / %d, total loss: %s\n >>> rpn_loss_cls: %s\n '
+              '>>> rpn_loss_box: %s\n >>> loss_cls: %s\n >>> loss_box: %s\n >>> lr: %f' % \
+              (iter, max_iters, str(total_loss), str(rpn_loss_cls), str(rpn_loss_box), str(loss_cls), str(loss_box), lr.eval()))
         print('speed: {:.3f}s / iter'.format(timer.average_time))
 
       if iter % cfg.TRAIN.SNAPSHOT_ITERS == 0:

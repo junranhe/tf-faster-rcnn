@@ -22,8 +22,13 @@ class vgg16(object):
     #Network.__init__(self, batch_size=batch_size)
     self._batch_size = batch_size
     self._variables_to_fix = {}
+
   def get_task_net(self,task_id):
     return self._tasks[task_id]['net']
+
+  def get_task(self, task_id):
+    return self._tasks[task_id]
+
   def create_mult_architecture(self, sess, mode,\
                            task_list,\
                            tag=None,
@@ -68,8 +73,10 @@ class vgg16(object):
         with tf.variable_scope(('branch_%d' % task_id), reuse=reuse):
           task['im_info_ph'] = tf.placeholder(tf.float32, shape=[self._batch_size, 3]) 
           task['gt_boxes_ph'] = tf.placeholder(tf.float32, shape=[None, 5])
+          task['image_ph'] = self._image
           out = task['net'].create_architecture(sess, mode, task['num_classes'], self._image, task['im_info_ph'], task['gt_boxes_ph'],\
                                           self._layers['head'], tag, anchor_scales, anchor_ratios)
+          task['losses'] = out
           outputs.append(out)
       return outputs
       #return rois, cls_prob, bbox_pred
@@ -116,4 +123,4 @@ class vgg16(object):
                             self._variables_to_fix['vgg_16/branch_%d/fc6/weights:0' % task_id].get_shape())))
           sess.run(tf.assign(self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id], tf.reshape(fc7_conv, 
                             self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id].get_shape())))
-        
+      

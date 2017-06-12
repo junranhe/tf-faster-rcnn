@@ -355,7 +355,7 @@ class Network(object):
     fc6 = slim.fully_connected(pool5_flat, 4096, scope='fc6')
     if is_training:
       fc6 = slim.dropout(fc6, keep_prob=0.5, is_training=True, scope='dropout6')
-      fc7 = slim.fully_connected(fc6, 4096, scope='fc7')
+    fc7 = slim.fully_connected(fc6, 4096, scope='fc7')
     if is_training:
       fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
 
@@ -466,33 +466,4 @@ class Network(object):
 
     return summary
 
-  def train_step(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, _ = sess.run([self._losses["rpn_cross_entropy"],
-                                                                        self._losses['rpn_loss_box'],
-                                                                        self._losses['cross_entropy'],
-                                                                        self._losses['loss_box'],
-                                                                        self._losses['total_loss'],
-                                                                        train_op],
-                                                                       feed_dict=feed_dict)
-    return rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss
-
-  def train_step_with_summary(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, summary, _ = sess.run([self._losses["rpn_cross_entropy"],
-                                                                                 self._losses['rpn_loss_box'],
-                                                                                 self._losses['cross_entropy'],
-                                                                                 self._losses['loss_box'],
-                                                                                 self._losses['total_loss'],
-                                                                                 self._summary_op,
-                                                                                 train_op],
-                                                                                feed_dict=feed_dict)
-    return rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, summary
-
-  def train_step_no_return(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    sess.run([train_op], feed_dict=feed_dict)
 

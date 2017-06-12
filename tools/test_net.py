@@ -16,7 +16,7 @@ import pprint
 import time, os, sys
 
 import tensorflow as tf
-from nets.vgg16 import vgg16
+from nets.mult_vgg16 import vgg16
 from nets.resnet_v1 import resnetv1
 
 def parse_args():
@@ -100,7 +100,7 @@ if __name__ == '__main__':
     raise NotImplementedError
 
   # load model
-  net.create_architecture(sess, "TEST", imdb.num_classes, tag='default',
+  net.create_mult_architecture(sess, "TEST", [imdb.num_classes], tag='default',
                           anchor_scales=cfg.ANCHOR_SCALES,
                           anchor_ratios=cfg.ANCHOR_RATIOS)
 
@@ -114,6 +114,6 @@ if __name__ == '__main__':
     sess.run(tf.global_variables_initializer())
     print('Loaded.')
 
-  test_net(sess, net, imdb, filename, max_per_image=args.max_per_image)
+  test_net(sess, net.get_task_net(0), imdb, filename, max_per_image=args.max_per_image)
 
   sess.close()
