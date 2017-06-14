@@ -60,6 +60,7 @@ class Network(object):
     self._score_summaries = {}
     self._train_summaries = []
     self._event_summaries = {}
+    self.debug = {}
 
   def _add_image_summary(self, image, boxes):
     # add back mean
@@ -109,6 +110,7 @@ class Network(object):
   def crop_pool_layer(self, bottom, rois, name):
     with tf.variable_scope(name) as scope:
       batch_ids = tf.squeeze(tf.slice(rois, [0, 0], [-1, 1], name="batch_id"), [1])
+      #batch_ids = tf.Print(batch_ids, [batch_ids])
       # Get the normalized coordinates of bboxes
       bottom_shape = tf.shape(bottom)
       height = (tf.to_float(bottom_shape[1]) - 1.) * np.float32(self._feat_stride[0])

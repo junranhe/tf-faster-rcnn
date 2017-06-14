@@ -38,12 +38,20 @@ class vgg16(object):
     self._tasks = [{'net':mult_network.Network(batch_size=self._batch_size),"num_classes":task_num_classes,\
                     "predictions":{},'anchor_targets':{}, 'proposal_targets':{}, 'im_info_ph':None, 'gt_boxes_ph':None} \
                    for task_num_classes in task_list]
+    #task['im_info_ph'] = tf.placeholder(tf.float32, shape=[self._batch_size, 3]) 
+    #task['gt_boxes_ph'] = tf.placeholder(tf.float32, shape=[None, 5])
+    noreuse_list = []
+    for task_id , task in enumerate(self._tasks):
+      task['im_info_ph'] = tf.placeholder(tf.float32, shape=[self._batch_size, 3]) 
+      task['gt_boxes_ph'] = tf.placeholder(tf.float32, shape=[None, 5])
+      noreuse_list.append(task['im_info_ph'])
+      noreuse_list.append(task['gt_boxes_ph'])
     self._layers = {}
 
     self._image = tf.placeholder(tf.float32, shape=[self._batch_size, None, None, 3])
-
+    noreuse_list.append(self._image)
     outputs = []
-    with tf.variable_scope(tf.get_variable_scope(), reuse=is_reuse):
+    with tf.variable_scope(tf.get_variable_scope(), noreuse_list, reuse=is_reuse):
       with slim.arg_scope(mult_network.faster_rcnn_arg_scope()):
         return self.build_network(sess, mode,tag, anchor_scales, anchor_ratios, reuse=is_reuse, is_training=(mode == 'TRAIN'))
 
@@ -71,8 +79,7 @@ class vgg16(object):
       outputs = []
       for task_id, task in enumerate(self._tasks): 
         with tf.variable_scope(('branch_%d' % task_id), reuse=reuse):
-          task['im_info_ph'] = tf.placeholder(tf.float32, shape=[self._batch_size, 3]) 
-          task['gt_boxes_ph'] = tf.placeholder(tf.float32, shape=[None, 5])
+          
           task['image_ph'] = self._image
           out = task['net'].create_architecture(sess, mode, task['num_classes'], self._image, task['im_info_ph'], task['gt_boxes_ph'],\
                                           self._layers['head'], tag, anchor_scales, anchor_ratios)

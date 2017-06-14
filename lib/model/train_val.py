@@ -29,11 +29,14 @@ class SolverWrapper(object):
     A wrapper class for the training process
   """
 
-  def __init__(self, sess, network, imdb, roidb, valroidb, output_dir, tbdir, pretrained_model=None):
+  def __init__(self, sess, network, task_list,roidb_list, valroidb_list, output_dir, tbdir, pretrained_model=None):
     self.net = network
-    self.imdb = imdb
-    self.roidb = roidb
-    self.valroidb = valroidb
+    self.task_list = task_list
+    self.roidb_list = roidb_list
+    self.valroidb_list = valroidb_list
+    #self.imdb = imdb
+    #self.roidb = roidb
+    #self.valroidb = valroidb
     self.output_dir = output_dir
     self.tbdir = tbdir
     # Simply put '_val' at the end to save the summaries from the validation set
@@ -58,6 +61,7 @@ class SolverWrapper(object):
     nfilename = cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_{:d}'.format(iter) + '.pkl'
     nfilename = os.path.join(self.output_dir, nfilename)
     # current state of numpy random
+    '''
     st0 = np.random.get_state()
     # current position in the database
     cur = self.data_layer._cur
@@ -76,7 +80,7 @@ class SolverWrapper(object):
       pickle.dump(cur_val, fid, pickle.HIGHEST_PROTOCOL)
       pickle.dump(perm_val, fid, pickle.HIGHEST_PROTOCOL)
       pickle.dump(iter, fid, pickle.HIGHEST_PROTOCOL)
-
+    '''
     return filename, nfilename
 
   def get_variables_in_checkpoint_file(self, file_name):
@@ -92,8 +96,13 @@ class SolverWrapper(object):
 
   def train_model(self, sess, max_iters):
     # Build data layers for both training and validation set
-    self.data_layer = RoIDataLayer(self.roidb, self.imdb.num_classes)
-    self.data_layer_val = RoIDataLayer(self.valroidb, self.imdb.num_classes, random=True)
+    data_layers = []
+    #data_layer_vals = []
+    for task_id,  task in enumerate(self.task_list):
+      data_layers.append(RoIDataLayer(self.roidb_list[task_id], task['num_classes']))
+      #data_layer_vals.append(RoIDataLayer(self.valroidb_list[task_id], task['num_classes']))
+    #self.data_layer = RoIDataLayer(self.roidb, self.imdb.num_classes)
+    #self.data_layer_val = RoIDataLayer(self.valroidb, self.imdb.num_classes, random=True)
 
     # Determine different scales for anchors, see paper
     with sess.graph.as_default():
@@ -130,7 +139,7 @@ class SolverWrapper(object):
         train_op = self.optimizer.apply_gradients(gvs)
       '''
       import nets.mult_utils as mult_utils
-      tasks, train_op ,lr, mult_nets = mult_utils.create_train_op(sess, [self.imdb.num_classes], 1)
+      tasks, train_op ,lr, mult_nets = mult_utils.create_train_op(sess, [t['num_classes'] for t in self.task_list], 1)
       # We will handle the snapshots ourselves
       self.saver = tf.train.Saver(max_to_keep=100000)
       # Write the train and validation information to tensorboard
@@ -188,6 +197,7 @@ class SolverWrapper(object):
       # Needs to restore the other hyperparameters/states for training, (TODO xinlei) I have
       # tried my best to find the random states so that it can be recovered exactly
       # However the Tensorflow state is currently not available
+      '''
       with open(str(nfiles[-1]), 'rb') as fid:
         st0 = pickle.load(fid)
         cur = pickle.load(fid)
@@ -207,7 +217,7 @@ class SolverWrapper(object):
           sess.run(tf.assign(lr, cfg.TRAIN.LEARNING_RATE * cfg.TRAIN.GAMMA))
         else:
           sess.run(tf.assign(lr, cfg.TRAIN.LEARNING_RATE))
-
+      '''
     timer = Timer()
     iter = last_snapshot_iter + 1
     last_summary_time = time.time()
@@ -220,8 +230,9 @@ class SolverWrapper(object):
 
       timer.tic()
       # Get training data, one batch at a time
-      blobs = self.data_layer.forward()
-
+      #blobs = self.data_layer.forward()
+      blobs_list = [ data.forward() for data in data_layers]
+      
       now = time.time()
       '''
       if now - last_summary_time > cfg.TRAIN.SUMMARY_INTERVAL:
@@ -240,11 +251,12 @@ class SolverWrapper(object):
           self.net.get_task_net(0).train_step(sess, blobs, train_op)
       '''
       rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, total_loss = \
-        mult_utils.train_step(sess, tasks, [blobs], train_op) 
+        mult_utils.train_step(sess, tasks, blobs_list, train_op) 
       timer.toc()
 
       # Display training information
       if iter % (cfg.TRAIN.DISPLAY) == 0:
+      #if True:
         #print('iter: %d / %d, total loss: %.6f\n >>> rpn_loss_cls: %.6f\n '
         #      '>>> rpn_loss_box: %.6f\n >>> loss_cls: %.6f\n >>> loss_box: %.6f\n >>> lr: %f' % \
         #      (iter, max_iters, total_loss, rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, lr.eval()))
@@ -330,18 +342,19 @@ def filter_roidb(roidb):
   return filtered_roidb
 
 
-def train_net(network, imdb, roidb, valroidb, output_dir, tb_dir,
+def train_net(network, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
               pretrained_model=None,
               max_iters=40000):
   """Train a Fast R-CNN network."""
-  roidb = filter_roidb(roidb)
-  valroidb = filter_roidb(valroidb)
+  for i in range(len(task_list)):
+    roidb_list[i] = filter_roidb(roidb_list[i])
+    #valroidb_list[i] = filter_roidb(valroidb_list[i])
 
   tfconfig = tf.ConfigProto(allow_soft_placement=True)
   tfconfig.gpu_options.allow_growth = True
 
   with tf.Session(config=tfconfig) as sess:
-    sw = SolverWrapper(sess, network, imdb, roidb, valroidb, output_dir, tb_dir,
+    sw = SolverWrapper(sess, network, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
                        pretrained_model=pretrained_model)
     print('Solving...')
     sw.train_model(sess, max_iters)

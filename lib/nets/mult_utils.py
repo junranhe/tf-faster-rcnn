@@ -1,35 +1,3 @@
-'''
-  def train_step(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, _ = sess.run([self._losses["rpn_cross_entropy"],
-                                                                        self._losses['rpn_loss_box'],
-                                                                        self._losses['cross_entropy'],
-                                                                        self._losses['loss_box'],
-                                                                        self._losses['total_loss'],
-                                                                        train_op],
-                                                                       feed_dict=feed_dict)
-    return rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss
-
-  def train_step_with_summary(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, summary, _ = sess.run([self._losses["rpn_cross_entropy"],
-                                                                                 self._losses['rpn_loss_box'],
-                                                                                 self._losses['cross_entropy'],
-                                                                                 self._losses['loss_box'],
-                                                                                 self._losses['total_loss'],
-                                                                                 self._summary_op,
-                                                                                 train_op],
-                                                                                feed_dict=feed_dict)
-    return rpn_loss_cls, rpn_loss_box, loss_cls, loss_box, loss, summary
-
-  def train_step_no_return(self, sess, blobs, train_op):
-    feed_dict = {self._image: blobs['data'], self._im_info: blobs['im_info'],
-                 self._gt_boxes: blobs['gt_boxes']}
-    sess.run([train_op], feed_dict=feed_dict)
-
-'''
 import numpy as np
 import tensorflow as tf   
 from model.config import cfg
@@ -38,10 +6,13 @@ def average_gradients(tower_grads):
   average_grads = []
   for grad_and_vars in zip(*tower_grads):
     grads = []
-    for g, _ in grad_and_vars:
+    #print 'grads'
+    for g, var in grad_and_vars:
+      if g is None:
+        continue
       expanded_g = tf.expand_dims(g, 0)
       grads.append(expanded_g)
-
+      #print var.name, len(grad_and_vars)
     grad = tf.concat(grads, 0)
     grad = tf.reduce_mean(grad, 0)
 
@@ -79,13 +50,19 @@ def create_train_op(sess, task_list, batch_size):
             final_gvs = []
             with tf.variable_scope('Gradient_Mult') as scope:
               for grad, var in gvs:
+                if grad is None:
+                  final_gvs.append((grad, var))
+                  continue
                 scale = 1.
                 if cfg.TRAIN.DOUBLE_BIAS and '/biases:' in var.name:
                   scale *= 2.
                 if not np.allclose(scale, 1.0):
                   grad = tf.multiply(grad, scale)
                 final_gvs.append((grad, var))
-          tower_grads.append(final_gvs)
+            tower_grads.append(final_gvs)
+          else:
+            tower_grads.append(gvs)
+
           tower_losses.append(loss)
           is_reuse = True
 

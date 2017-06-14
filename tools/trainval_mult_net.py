@@ -101,27 +101,40 @@ if __name__ == '__main__':
   print('Using config:')
   pprint.pprint(cfg)
 
+  cfg.TRAIN.USE_FLIPPED = False
   np.random.seed(cfg.RNG_SEED)
 
+  data_dir = cfg.DATA_DIR 
   # train set
-  imdb, roidb = combined_roidb(args['imdb'])
-  print('{:d} roidb entries'.format(len(roidb)))
+  imdb_list = []
+  roidb_list = []
+  for task in args['task_list']:
+    imdb, roidb = combined_roidb(task['imdb'])
+    print('{:d} roidb entries'.format(len(roidb)))
+    task['num_classes'] = imdb.num_classes
+    imdb_list.append(imdb)
+    roidb_list.append(roidb)
 
   # output directory where the models are saved
-  output_dir = get_output_dir(imdb, None)
+  output_dir = get_output_dir(imdb_list[0], None)
   print('Output will be saved to `{:s}`'.format(output_dir))
 
   # tensorboard directory where the summaries are saved during training
-  tb_dir = get_output_tb_dir(imdb, None)
+  tb_dir = get_output_tb_dir(imdb_list[0], None)
   print('TensorFlow summaries will be saved to `{:s}`'.format(tb_dir))
 
   # also add the validation set, but with no flipping images
   orgflip = cfg.TRAIN.USE_FLIPPED
   cfg.TRAIN.USE_FLIPPED = False
-  _, valroidb = combined_roidb(args['imdbval'])
+  valroidb_list = []
+  ''' 
+  for task in args['task_list']:
+    print("load " + task['imdbval'])
+    _, valroidb = combined_roidb(task['imdbval'])
+    valroidb_list.append(valroidb)
   print('{:d} validation roidb entries'.format(len(valroidb)))
   cfg.TRAIN.USE_FLIPPED = orgflip
-
+  '''
   # load network
   from nets.mult_vgg16 import vgg16
   if args['net'] == 'vgg16':
@@ -129,6 +142,6 @@ if __name__ == '__main__':
   else:
     raise NotImplementedError
     
-  train_net(net, imdb, roidb, valroidb, output_dir, tb_dir,
+  train_net(net, args['task_list'], roidb_list, valroidb_list, output_dir, tb_dir,
             pretrained_model=args['weight'],
             max_iters=args['iters'])

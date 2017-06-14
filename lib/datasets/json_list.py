@@ -6,6 +6,7 @@
 # --------------------------------------------------------
 
 import os
+import os.path as osp
 from datasets.imdb import imdb
 import datasets.ds_utils as ds_utils
 import xml.etree.ElementTree as ET
@@ -33,8 +34,8 @@ class json_list(imdb):
             self.list_file = json_config['fileListJSON']
             self.json_file = json_file
 
-        cfg.DATA_DIR = os.path.dirname(self.json_file)
-
+        #cfg.DATA_DIR = os.path.dirname(self.json_file)
+        self._data_dir = os.path.dirname(self.json_file)
         # Default to roidb handler
         self._roidb_handler = self.gt_roidb
 
@@ -65,6 +66,13 @@ class json_list(imdb):
     def image_path_at(self, i):
         index = self._image_index[i] % len(self._image_paths)
         return self._image_paths[index]
+    @property
+    def cache_path(self):
+      cache_path = osp.abspath(osp.join(self._data_dir, 'cache'))
+      if not os.path.exists(cache_path):
+        os.makedirs(cache_path)
+      return cache_path
+
 
     def gt_roidb(self):
         """
