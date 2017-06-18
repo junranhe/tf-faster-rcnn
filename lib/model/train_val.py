@@ -30,7 +30,9 @@ class SolverWrapper(object):
   """
 
   def __init__(self, sess, network, task_list,roidb_list, valroidb_list, output_dir, tbdir, pretrained_model=None):
-    self.net = network
+    #self.net = network
+    print('task list {}'.format(task_list))
+    print('roidb list len {},roid[0] len {}'.format(len(roidb_list),len(roidb_list[0])))
     self.task_list = task_list
     self.roidb_list = roidb_list
     self.valroidb_list = valroidb_list
@@ -46,7 +48,7 @@ class SolverWrapper(object):
     self.pretrained_model = pretrained_model
 
   def snapshot(self, sess, iter):
-    net = self.net
+    #net = self.net
 
     if not os.path.exists(self.output_dir):
       os.makedirs(self.output_dir)
@@ -145,6 +147,13 @@ class SolverWrapper(object):
       # Write the train and validation information to tensorboard
       self.writer = tf.summary.FileWriter(self.tbdir, sess.graph)
       self.valwriter = tf.summary.FileWriter(self.tbvaldir)
+
+      #all_vars = tf.global_variables()
+      #print('----------all variable now-------------')
+      #for v in all_vars:
+      #  print(v.name) 
+      #print('---------------var finished------------')
+
 
     # Find previous snapshots if there is any to restore from
     sfiles = os.path.join(self.output_dir, cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_*.ckpt.meta')
