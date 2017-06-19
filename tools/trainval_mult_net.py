@@ -136,12 +136,12 @@ if __name__ == '__main__':
   cfg.TRAIN.USE_FLIPPED = orgflip
   '''
   # load network
-  from nets.mult_vgg16 import vgg16
-  if args['net'] == 'vgg16':
-    net = vgg16(batch_size=cfg.TRAIN.IMS_PER_BATCH)
-  else:
-    raise NotImplementedError
+  #from nets.mult_vgg16 import vgg16
+  #if args['net'] == 'vgg16':
+  #  net = vgg16(batch_size=cfg.TRAIN.IMS_PER_BATCH)
+  #else:
+  #  raise NotImplementedError
     
-  train_net(net, args['task_list'], roidb_list, valroidb_list, output_dir, tb_dir,
+  train_net(args['net'], args['task_list'], roidb_list, valroidb_list, output_dir, tb_dir,
             pretrained_model=args['weight'],
             max_iters=args['iters'])

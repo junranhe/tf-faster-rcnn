@@ -30,7 +30,7 @@ class SolverWrapper(object):
   """
 
   def __init__(self, sess, network, task_list,roidb_list, valroidb_list, output_dir, tbdir, pretrained_model=None):
-    #self.net = network
+    self.net_name = network
     print('task list {}'.format(task_list))
     print('roidb list len {},roid[0] len {}'.format(len(roidb_list),len(roidb_list[0])))
     self.task_list = task_list
@@ -141,7 +141,7 @@ class SolverWrapper(object):
         train_op = self.optimizer.apply_gradients(gvs)
       '''
       import nets.mult_utils as mult_utils
-      tasks, train_op ,lr, mult_nets = mult_utils.create_train_op(sess, [t['num_classes'] for t in self.task_list], 1)
+      tasks, train_op ,lr, mult_nets = mult_utils.create_train_op(sess, [t['num_classes'] for t in self.task_list], 1,self.net_name)
       # We will handle the snapshots ourselves
       self.saver = tf.train.Saver(max_to_keep=100000)
       # Write the train and validation information to tensorboard
@@ -156,6 +156,7 @@ class SolverWrapper(object):
 
 
     # Find previous snapshots if there is any to restore from
+    print('current output dir is {}'.format(self.output_dir))
     sfiles = os.path.join(self.output_dir, cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_*.ckpt.meta')
     sfiles = glob.glob(sfiles)
     sfiles.sort(key=os.path.getmtime)
@@ -184,7 +185,7 @@ class SolverWrapper(object):
       var_keep_dic = self.get_variables_in_checkpoint_file(self.pretrained_model)
       # Get the variables to restore, ignorizing the variables to fix
       variables_to_restore =  mult_nets.get_variables_to_restore(variables, var_keep_dic)
-
+      #print('variable to restore {}'.format(variables_to_restore))
       restorer = tf.train.Saver(variables_to_restore)
       restorer.restore(sess, self.pretrained_model)
       print('Loaded.')
@@ -351,7 +352,7 @@ def filter_roidb(roidb):
   return filtered_roidb
 
 
-def train_net(network, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
+def train_net(network_name, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
               pretrained_model=None,
               max_iters=40000):
   """Train a Fast R-CNN network."""
@@ -363,7 +364,7 @@ def train_net(network, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
   tfconfig.gpu_options.allow_growth = True
 
   with tf.Session(config=tfconfig) as sess:
-    sw = SolverWrapper(sess, network, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
+    sw = SolverWrapper(sess, network_name, task_list, roidb_list, valroidb_list, output_dir, tb_dir,
                        pretrained_model=pretrained_model)
     print('Solving...')
     sw.train_model(sess, max_iters)

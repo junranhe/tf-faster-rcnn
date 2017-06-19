@@ -29,7 +29,7 @@ def average_gradients(tower_grads):
     average_grads.append(grad_and_var)
   return average_grads 
  
-def create_train_op(sess, task_list, batch_size):
+def create_train_op(sess, task_list, batch_size,net_name):
   with tf.device('/cpu:0'):
     lr = tf.Variable(cfg.TRAIN.LEARNING_RATE, trainable=False)
     momentum = cfg.TRAIN.MOMENTUM
@@ -38,7 +38,7 @@ def create_train_op(sess, task_list, batch_size):
     tower_grads = []
     tower_losses = []
     is_reuse = False
-    net_name = 'vgg16'
+    print('create train op for network {}'.format(net_name))
     if(net_name not in network_map):
       raise ValueError('network name %s not konwn!' % net_name)
       
