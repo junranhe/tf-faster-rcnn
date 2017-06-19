@@ -328,6 +328,7 @@ class Network(object):
 
     self.anchor_component()
     # rpn
+    print('current net_head shape {}'.format(net_head.get_shape()))
     rpn = slim.conv2d(net_head, 512, [3, 3], trainable=is_training, weights_initializer=initializer, scope="rpn_conv/3x3")
     #self._act_summaries.append(rpn)
     rpn_cls_score = slim.conv2d(rpn, self._num_anchors * 2, [1, 1], trainable=is_training,

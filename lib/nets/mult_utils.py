@@ -2,6 +2,14 @@ import numpy as np
 import tensorflow as tf   
 from model.config import cfg
 from mult_vgg16 import vgg16
+from mult_mobilenet import mobilenet  
+
+network_map = {
+   'vgg16':vgg16,
+   'mobilenet':mobilenet
+}
+
+
 def average_gradients(tower_grads):
   average_grads = []
   for grad_and_vars in zip(*tower_grads):
@@ -21,7 +29,7 @@ def average_gradients(tower_grads):
     average_grads.append(grad_and_var)
   return average_grads 
  
-def create_train_op(sess, task_list, batch_size):
+def create_train_op(sess, task_list, batch_size,net_name):
   with tf.device('/cpu:0'):
     lr = tf.Variable(cfg.TRAIN.LEARNING_RATE, trainable=False)
     momentum = cfg.TRAIN.MOMENTUM
@@ -30,8 +38,12 @@ def create_train_op(sess, task_list, batch_size):
     tower_grads = []
     tower_losses = []
     is_reuse = False
+    print('create train op for network {}'.format(net_name))
+    if(net_name not in network_map):
+      raise ValueError('network name %s not konwn!' % net_name)
+      
     for task_id , task_classes_num in enumerate(task_list):
-      net = vgg16(batch_size)
+      net = network_map[net_name](batch_size)
       with tf.device('/gpu:%d' % task_id):
         with tf.name_scope('tower_%d' % task_id) as scope:
           net.create_mult_architecture(sess, 'TRAIN', task_list, tag='default',
