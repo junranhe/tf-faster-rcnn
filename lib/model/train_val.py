@@ -155,17 +155,18 @@ class SolverWrapper(object):
     sfiles = [ss.replace('.meta', '') for ss in sfiles]
     sfiles = [ss for ss in sfiles if redstr not in ss]
 
-    nfiles = os.path.join(self.output_dir, cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_*.pkl')
-    nfiles = glob.glob(nfiles)
-    nfiles.sort(key=os.path.getmtime)
-    nfiles = [nn for nn in nfiles if redstr not in nn]
+    #nfiles = os.path.join(self.output_dir, cfg.TRAIN.SNAPSHOT_PREFIX + '_iter_*.pkl')
+    #nfiles = glob.glob(nfiles)
+    #nfiles.sort(key=os.path.getmtime)
+    #nfiles = [nn for nn in nfiles if redstr not in nn]
 
     lsf = len(sfiles)
-    assert len(nfiles) == lsf
+    #assert len(nfiles) == lsf
 
-    np_paths = nfiles
+    #np_paths = nfiles
     ss_paths = sfiles
 
+    last_snapshot_iter = 0
     if lsf == 0:
       # Fresh train directly from ImageNet weights
       print('Loading initial model weights from {:s}'.format(self.pretrained_model))
@@ -185,11 +186,10 @@ class SolverWrapper(object):
       mult_nets.fix_variables(sess, self.pretrained_model)
       print('Fixed.')
       sess.run(tf.assign(lr, cfg.TRAIN.LEARNING_RATE))
-      last_snapshot_iter = 0
     else:
       # Get the most recent snapshot and restore
       ss_paths = [ss_paths[-1]]
-      np_paths = [np_paths[-1]]
+      #np_paths = [np_paths[-1]]
 
       print('Restorining model snapshots from {:s}'.format(sfiles[-1]))
       self.saver.restore(sess, str(sfiles[-1]))
@@ -268,16 +268,16 @@ class SolverWrapper(object):
       if iter % cfg.TRAIN.SNAPSHOT_ITERS == 0:
         last_snapshot_iter = iter
         snapshot_path, np_path = self.snapshot(sess, iter)
-        np_paths.append(np_path)
+        #np_paths.append(np_path)
         ss_paths.append(snapshot_path)
 
         # Remove the old snapshots if there are too many
-        if len(np_paths) > cfg.TRAIN.SNAPSHOT_KEPT:
-          to_remove = len(np_paths) - cfg.TRAIN.SNAPSHOT_KEPT
-          for c in range(to_remove):
-            nfile = np_paths[0]
-            os.remove(str(nfile))
-            np_paths.remove(nfile)
+        #if len(np_paths) > cfg.TRAIN.SNAPSHOT_KEPT:
+        #  to_remove = len(np_paths) - cfg.TRAIN.SNAPSHOT_KEPT
+        #  for c in range(to_remove):
+        #    nfile = np_paths[0]
+        #    os.remove(str(nfile))
+        #    np_paths.remove(nfile)
 
         if len(ss_paths) > cfg.TRAIN.SNAPSHOT_KEPT:
           to_remove = len(ss_paths) - cfg.TRAIN.SNAPSHOT_KEPT

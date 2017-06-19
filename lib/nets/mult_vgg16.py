@@ -16,6 +16,21 @@ from tensorflow.python.ops import variable_scope
 #from nets.mult_network import Network
 import nets.mult_network as mult_network
 from model.config import cfg
+from utils.blob import prep_im_for_blob, im_list_to_blob
+from model.bbox_transform import clip_boxes, bbox_transform_inv
+
+def _clip_boxes(boxes, im_shape):
+  """Clip boxes to image boundaries."""
+  # x1 >= 0
+  boxes[:, 0::4] = np.maximum(boxes[:, 0::4], 0)
+  # y1 >= 0
+  boxes[:, 1::4] = np.maximum(boxes[:, 1::4], 0)
+  # x2 < im_shape[1]
+  boxes[:, 2::4] = np.minimum(boxes[:, 2::4], im_shape[1] - 1)
+  # y2 < im_shape[0]
+  boxes[:, 3::4] = np.minimum(boxes[:, 3::4], im_shape[0] - 1)
+  return boxes
+
 
 class vgg16(object):
   def __init__(self, batch_size=1):
@@ -130,4 +145,20 @@ class vgg16(object):
                             self._variables_to_fix['vgg_16/branch_%d/fc6/weights:0' % task_id].get_shape())))
           sess.run(tf.assign(self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id], tf.reshape(fc7_conv, 
                             self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id].get_shape())))
+  def test_image(self, sess, image, im_info, task_ids):
+    feed_dict = {self._image: image}
+    preds = []
+    for task_id in task_ids:
+      task = self._tasks[task_id]
+      _, class_prob, box_pred, roi = task['net'].get_predictions()
+      preds += [class_prob, box_pred, roi]
       
+      feed_dict[task['im_info_ph']] = im_info
+    outputs =  sess.run(preds, feed_dict=feed_dict)
+    results = []
+    for i in range(len(task_ids)):
+      scores = outputs[3*i]
+      bbox_pred =outputs[3*i + 1]
+      rois = outputs[3*i + 2]
+      results.append((scores, bbox_pred, rois))
+    return results

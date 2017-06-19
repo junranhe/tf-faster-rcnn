@@ -101,10 +101,10 @@ if __name__ == '__main__':
   print('Using config:')
   pprint.pprint(cfg)
 
-  cfg.TRAIN.USE_FLIPPED = False
   np.random.seed(cfg.RNG_SEED)
 
-  data_dir = cfg.DATA_DIR 
+  output_dir = args['working_dir']
+  cfg.TRAIN.CACHE_PATH = output_dir
   # train set
   imdb_list = []
   roidb_list = []
@@ -116,11 +116,12 @@ if __name__ == '__main__':
     roidb_list.append(roidb)
 
   # output directory where the models are saved
-  output_dir = get_output_dir(imdb_list[0], None)
+  #output_dir = get_output_dir(imdb_list[0], None)
   print('Output will be saved to `{:s}`'.format(output_dir))
 
   # tensorboard directory where the summaries are saved during training
-  tb_dir = get_output_tb_dir(imdb_list[0], None)
+  #tb_dir = get_output_tb_dir(imdb_list[0], None)
+  tb_dir = output_dir
   print('TensorFlow summaries will be saved to `{:s}`'.format(tb_dir))
 
   # also add the validation set, but with no flipping images

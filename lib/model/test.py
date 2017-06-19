@@ -110,6 +110,36 @@ def im_detect(sess, net, im):
 
   return scores, pred_boxes
 
+def mult_im_detect(sess, mult_net, im, task_ids):
+  blobs, im_scales = _get_blobs(im)
+  assert len(im_scales) == 1, "Only single-image batch implemented"
+
+  im_blob = blobs['data']
+  # seems to have height, width, and image scales
+  # still not sure about the scale, maybe full image it is 1.
+  blobs['im_info'] = np.array([[im_blob.shape[1], im_blob.shape[2], im_scales[0]]], dtype=np.float32)
+
+  outputs = mult_net.test_image(sess, blobs['data'], blobs['im_info'], task_ids)
+  #_, scores, bbox_pred, rois = net.test_image(sess, blobs['data'], blobs['im_info'])
+  res = []
+  for out in outputs:
+    scores , bbox_pred, rois = out
+    boxes = rois[:, 1:5] / im_scales[0]
+    # print(scores.shape, bbox_pred.shape, rois.shape, boxes.shape)
+    scores = np.reshape(scores, [scores.shape[0], -1])
+    bbox_pred = np.reshape(bbox_pred, [bbox_pred.shape[0], -1])
+    if cfg.TEST.BBOX_REG:
+      # Apply bounding-box regression deltas
+      box_deltas = bbox_pred
+      pred_boxes = bbox_transform_inv(boxes, box_deltas)
+      pred_boxes = _clip_boxes(pred_boxes, im.shape)
+    else:
+      # Simply repeat the boxes, once for each class
+      pred_boxes = np.tile(boxes, (1, scores.shape[1]))
+    res.append((scores, pred_boxes))
+  return res
+
+
 def apply_nms(all_boxes, thresh):
   """Apply non-maximum suppression to all predicted boxes output by the
   test_net method.

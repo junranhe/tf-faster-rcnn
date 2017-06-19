@@ -61,6 +61,10 @@ class Network(object):
     self._train_summaries = []
     self._event_summaries = {}
     self.debug = {}
+  def get_predictions(self):
+      return self._predictions["cls_score"], self._predictions['cls_prob'],\
+             self._predictions['bbox_pred'], self._predictions['rois']
+     
 
   def _add_image_summary(self, image, boxes):
     # add back mean
@@ -207,11 +211,13 @@ class Network(object):
       # just to get the shape right
       height = tf.to_int32(tf.ceil(self._im_info[0, 0] / np.float32(self._feat_stride[0])))
       width = tf.to_int32(tf.ceil(self._im_info[0, 1] / np.float32(self._feat_stride[0])))
+      #print("height:%d widht:%d" % (height, width))
       anchors, anchor_length = tf.py_func(generate_anchors_pre,
                                           [height, width,
                                            self._feat_stride, self._anchor_scales, self._anchor_ratios],
                                           [tf.float32, tf.int32], name="generate_anchors")
       anchors.set_shape([None, 4])
+      #print("anchors:", anchors.get_shape()," scale:", self._anchor_scales," ration:", self._anchor_ratios," s:", self._feat_stride)
       anchor_length.set_shape([])
       self._anchors = anchors
       self._anchor_length = anchor_length
@@ -334,6 +340,7 @@ class Network(object):
     rpn_bbox_pred = slim.conv2d(rpn, self._num_anchors * 4, [1, 1], trainable=is_training,
                                   weights_initializer=initializer,
                                   padding='VALID', activation_fn=None, scope='rpn_bbox_pred')
+    print("rpn_bbox_pred:", rpn_bbox_pred.get_shape(), self._num_anchors)
 
     if is_training:
       rois, roi_scores = self.proposal_layer(rpn_cls_prob, rpn_bbox_pred, "rois")
