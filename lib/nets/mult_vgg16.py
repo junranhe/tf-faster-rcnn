@@ -19,6 +19,8 @@ from model.config import cfg
 from utils.blob import prep_im_for_blob, im_list_to_blob
 from model.bbox_transform import clip_boxes, bbox_transform_inv
 
+from utils.shape_util import print_shape
+
 def _clip_boxes(boxes, im_shape):
   """Clip boxes to image boundaries."""
   # x1 >= 0
@@ -30,6 +32,30 @@ def _clip_boxes(boxes, im_shape):
   # y2 < im_shape[0]
   boxes[:, 3::4] = np.minimum(boxes[:, 3::4], im_shape[0] - 1)
   return boxes
+
+def build_fc_net(rpn_pooled_net,is_training):
+  '''
+    add pooled net
+    Args:
+      rpn_pooled_ne
+    Return:
+      net out to connect classifier 
+  '''
+  print_shape(rpn_pooled_net)
+  pool5_flat = slim.flatten(rpn_pooled_net, scope='flatten')
+  print_shape(pool5_flat)
+  
+  fc6 = slim.fully_connected(pool5_flat, 4096, scope='fc6')
+  if is_training:
+    fc6 = slim.dropout(fc6, keep_prob=0.5, is_training=True, scope='dropout6')
+  print_shape(fc6)
+
+  fc7 = slim.fully_connected(fc6, 4096, scope='fc7')
+  if is_training:
+    fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
+  print_shape(fc7)
+
+  return fc7
 
 
 class vgg16(object):
@@ -97,7 +123,7 @@ class vgg16(object):
           
           task['image_ph'] = self._image
           out = task['net'].create_architecture(sess, mode, task['num_classes'], self._image, task['im_info_ph'], task['gt_boxes_ph'],\
-                                          self._layers['head'], tag, anchor_scales, anchor_ratios)
+                                          self._layers['head'], build_fc_net, tag, anchor_scales, anchor_ratios)
           task['losses'] = out
           outputs.append(out)
       return outputs

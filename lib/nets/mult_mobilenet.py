@@ -18,6 +18,7 @@ from tensorflow.python.ops import variable_scope
 import nets.mult_network as mult_network
 from model.config import cfg
 
+from utils.shape_util import print_shape
 
 Conv = namedtuple('Conv', ['kernel', 'stride', 'depth'])
 DepthSepConv = namedtuple('DepthSepConv', ['kernel', 'stride', 'depth'])
@@ -39,6 +40,48 @@ _CONV_DEFS = [
     DepthSepConv(kernel=[3, 3], stride=2, depth=1024),
     DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
 ]
+
+
+
+def build_fc_net(rpn_pooled_net,is_training):
+  print_shape(rpn_pooled_net)
+  pool_flat = slim.flatten(rpn_pooled_net, scope='flatten')
+ 
+  fc7 = slim.fully_connected(pool_flat, 4096, scope='fc7')
+  if is_training:
+    fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
+  print_shape(fc7)
+
+  return fc7
+
+'''
+  #depth = lambda d: max(int(d * 1.0), 8)
+  #with slim.arg_scope([slim.conv2d, slim.separable_conv2d], padding='SAME'):
+  #  end_start_base = 12
+  #  for i, conv_def in enumerate(_CONV_FULL_DEFS):
+  #    end_point_base = 'Conv2d_%d' % (i + end_start_base) 
+  #    end_point = end_point_base + '_depthwise'
+  #    net = slim.separable_conv2d(rpn_pooled_net, None, conv_def.kernel,
+  #                                depth_multiplier=1,
+  #                                stride=conv_def.stride,
+  #                                normalizer_fn=slim.batch_norm,
+  #                                scope=end_point,
+  #                                trainable=is_training)
+  #    end_point = end_point_base + '_pointwise'
+  #    net = slim.conv2d(net, depth(conv_def.depth), [1, 1],
+  #                      stride=1,
+  #                      normalizer_fn=slim.batch_norm,
+  #                      scope=end_point,
+  #                      trainable=is_training)
+
+  #  pool_flat = slim.flatten(net, scope='flatten')
+  #  fc7 = slim.fully_connected(pool_flat, 4096, scope='fc7')
+  #  if is_training:
+  #    fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
+  #  print_shape(fc7)
+
+  #  return fc7 
+'''
 
 def mobilenet_v1_base(inputs,
                       final_endpoint='Conv2d_13_pointwise',
@@ -109,6 +152,9 @@ def mobilenet_v1_base(inputs,
       net = inputs
       for i, conv_def in enumerate(conv_defs):
         end_point_base = 'Conv2d_%d' % i
+        trainable_flag = True
+        if(i<=2):
+          trainable_flag = False
 
         if output_stride is not None and current_stride == output_stride:
           # If we have reached the target output_stride, then we need to employ
@@ -128,7 +174,7 @@ def mobilenet_v1_base(inputs,
                             stride=conv_def.stride,
                             normalizer_fn=slim.batch_norm,
                             scope=end_point,
-                            trainable=False) # 第一个卷积层使用来自image_net的参数不可变
+                            trainable=trainable_flag) # 第一个卷积层使用来自image_net的参数不可变
           end_points[end_point] = net
           if end_point == final_endpoint:
             return net, end_points
@@ -144,7 +190,7 @@ def mobilenet_v1_base(inputs,
                                       rate=layer_rate,
                                       normalizer_fn=slim.batch_norm,
                                       scope=end_point,
-                                      trainable=is_training)
+                                      trainable=trainable_flag)
 
           end_points[end_point] = net
           if end_point == final_endpoint:
@@ -156,7 +202,7 @@ def mobilenet_v1_base(inputs,
                             stride=1,
                             normalizer_fn=slim.batch_norm,
                             scope=end_point,
-                            trainable=is_training)
+                            trainable=trainable_flag)
 
           end_points[end_point] = net
           if end_point == final_endpoint:
@@ -217,7 +263,7 @@ class mobilenet(object):
             
             task['image_ph'] = self._image
             out = task['net'].create_architecture(sess, mode, task['num_classes'], self._image, task['im_info_ph'], task['gt_boxes_ph'],\
-                                            self._layers['head'], tag, anchor_scales, anchor_ratios)
+                                            self._layers['head'], build_fc_net, tag, anchor_scales, anchor_ratios)
             task['losses'] = out
             outputs.append(out)
         return outputs
@@ -225,12 +271,54 @@ class mobilenet(object):
 
   def get_variables_to_restore(self, variables, var_keep_dic):
     print('Get variable to restore For Mobilenet...')
-    print('variables type {} var_keep_dict type {}'.format(type(variables),type(var_keep_dic)))
+    #print('you have variables of name ....')
+    #for v in variables:
+    #  print('-----V : {}'.format(v.name))
+
     variables_to_restore = []
-    branch_weight_names = []
-    for task_id, task in enumerate(self._tasks):
-      branch_weight_names.append('MobilenetV1/branch_%d/fc6/weights:0' % task_id)
-      branch_weight_names.append('MobilenetV1/branch_%d/fc7/weights:0' % task_id)
+    branch_weight_names = set()
+    #for task_id, task in enumerate(self._tasks):
+    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta:0' % task_id)
+    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/depthwise_weights:0' % task_id)
+    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta/Momentum:0' % task_id)
+    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/moving_mean:0' % task_id)
+    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta:0' % task_id)
+
+    #for branch_var in branch_weight_names:
+    #  print('variable {} in branch not to restore'.format(branch_var))
+    
+    weight_in_conv_13 = ['MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_variance:0',
+                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/ExponentialMovingAverage:[3, 3, 1024, 1]'
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_mean:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_variance:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_mean/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_mean/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_variance/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_variance/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_pointwise/weights/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta:0',
+                         'MobilenetV1/Conv2d_13_pointwise/weights/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/RMSProp_1:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma:0',
+                         'MobilenetV1/Conv2d_13_pointwise/weights/ExponentialMovingAverage:0',
+                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/RMSProp:0',
+                         'MobilenetV1/Conv2d_13_pointwise/weights:0',
+                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights:0',
+                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_mean:0']
 
     for v in variables:
       # exclude the conv weights that are fc weights in vgg16
@@ -238,9 +326,15 @@ class mobilenet(object):
         self._variables_to_fix[v.name] = v
         continue
       # exclude the first conv layer to swap RGB to BGR
+
       if v.name == 'MobilenetV1/Conv2d_0/weights:0':
         self._variables_to_fix[v.name] = v
         continue
+
+      if v.name in weight_in_conv_13: # exclude the last conv layer
+        self._variables_to_fix[v.name] = v
+        continue
+
       if v.name.split(':')[0] in var_keep_dic:
         print('Varibles restored: %s' % v.name)
         variables_to_restore.append(v)

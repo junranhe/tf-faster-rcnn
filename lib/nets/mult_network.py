@@ -21,6 +21,9 @@ from layer_utils.anchor_target_layer import anchor_target_layer
 from layer_utils.proposal_target_layer import proposal_target_layer
 
 from model.config import cfg
+
+from utils.shape_util import print_shape
+
 def faster_rcnn_arg_scope():
   weights_regularizer = tf.contrib.layers.l2_regularizer(cfg.TRAIN.WEIGHT_DECAY)
   if cfg.TRAIN.BIAS_DECAY:
@@ -45,6 +48,8 @@ def roi_pool_layer(bootom, rois, name):
                                   spatial_scale=1. / 16.)[0]
 #def dropout_layer(bottom, name, ratio=0.5):
 #  return tf.nn.dropout(bottom, ratio, name=name)
+
+
 
 class Network(object):
   def __init__(self, batch_size=1):
@@ -291,6 +296,7 @@ class Network(object):
                            im_info_ph,\
                            gt_boxes_ph,\
                            net_head,\
+                           fun_fc_net_builder,
                            tag=None,
                            anchor_scales=(8, 16, 32),\
                            anchor_ratios=(0.5, 1, 2)):
@@ -323,17 +329,21 @@ class Network(object):
 
     self._num_anchors = self._num_scales * self._num_ratios
 
-    training = mode == 'TRAIN'
+    #training = mode == 'TRAIN'
     testing = mode == 'TEST'
 
     self.anchor_component()
     # rpn
-    print('current net_head shape {}'.format(net_head.get_shape()))
+    print_shape(net_head,'net_head ')
     rpn = slim.conv2d(net_head, 512, [3, 3], trainable=is_training, weights_initializer=initializer, scope="rpn_conv/3x3")
     #self._act_summaries.append(rpn)
+    
+    print_shape(rpn)
     rpn_cls_score = slim.conv2d(rpn, self._num_anchors * 2, [1, 1], trainable=is_training,
                                   weights_initializer=initializer,
                                   padding='VALID', activation_fn=None, scope='rpn_cls_score')
+
+    print_shape(rpn_cls_score)
     # change it so that the score has 2 as its channel size
     rpn_cls_score_reshape = self.reshape_layer(rpn_cls_score, 2, 'rpn_cls_score_reshape')
     rpn_cls_prob_reshape = self.softmax_layer(rpn_cls_score_reshape, "rpn_cls_prob_reshape")
@@ -341,7 +351,7 @@ class Network(object):
     rpn_bbox_pred = slim.conv2d(rpn, self._num_anchors * 4, [1, 1], trainable=is_training,
                                   weights_initializer=initializer,
                                   padding='VALID', activation_fn=None, scope='rpn_bbox_pred')
-    print("rpn_bbox_pred:", rpn_bbox_pred.get_shape(), self._num_anchors)
+    print_shape(rpn_bbox_pred)
 
     if is_training:
       rois, roi_scores = self.proposal_layer(rpn_cls_prob, rpn_bbox_pred, "rois")
@@ -356,18 +366,16 @@ class Network(object):
         rois, _ = self.proposal_top_layer(rpn_cls_prob, rpn_bbox_pred, "rois")
       else:
         raise NotImplementedError
+
+    print('pooling mode is {}'.format(cfg.POOLING_MODE))
     if cfg.POOLING_MODE == 'crop':
       pool5 = self.crop_pool_layer(net_head, rois, "pool5")
     else:
       raise NotImplementedError
 
-    pool5_flat = slim.flatten(pool5, scope='flatten')
-    fc6 = slim.fully_connected(pool5_flat, 4096, scope='fc6')
-    if is_training:
-      fc6 = slim.dropout(fc6, keep_prob=0.5, is_training=True, scope='dropout6')
-    fc7 = slim.fully_connected(fc6, 4096, scope='fc7')
-    if is_training:
-      fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
+    print_shape(pool5,'-------pool 5-------')
+    fc7 = fun_fc_net_builder(pool5,is_training)  
+    print_shape(fc7,'----fc 7 out --------')
 
     predictions = self._predictions
     num_classes = num_classes
@@ -375,11 +383,16 @@ class Network(object):
                                        weights_initializer=initializer,
                                        trainable=is_training,
                                        activation_fn=None, scope='cls_score')
+    print_shape(cls_score)    
+
     cls_prob = self.softmax_layer(cls_score, "cls_prob")
+
+
     bbox_pred = slim.fully_connected(fc7, num_classes * 4, 
                                        weights_initializer=initializer_bbox,
                                        trainable=is_training,
                                        activation_fn=None, scope='bbox_pred')
+    print_shape(bbox_pred)
 
     predictions["rpn_cls_score"] = rpn_cls_score
     predictions["rpn_cls_score_reshape"] = rpn_cls_score_reshape

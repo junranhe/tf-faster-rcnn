@@ -243,6 +243,7 @@ class SolverWrapper(object):
       #blobs = self.data_layer.forward()
       blobs_list = [ data.forward() for data in data_layers]
       
+      #print('current blobs 0 {}'.format(blobs_list[0]))
       now = time.time()
       '''
       if now - last_summary_time > cfg.TRAIN.SUMMARY_INTERVAL:
