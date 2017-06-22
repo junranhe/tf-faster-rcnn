@@ -1,0 +1,13 @@
+{
+  "weight":"data/imagenet_weights/mobilenet/mobilenet_v1_1.0_224.ckpt",
+  "task_list": [{"imdb":"voc_2007_trainval",
+                 "imdbval":"voc_2007_test"},
+                {"imdb":"/world/data-c9/censhusheng/train_rfcn_head/14930014888130.5339999847683952.json",
+                 "imdbval":"/world/data-c9/censhusheng/train_rfcn_head/14930014888130.5339999847683952.json"}],
+  "iters":10000,
+  "cfg_file": "experiments/cfgs/mobilenet.yml",
+  "net":"mobilenet",
+  "working_dir":"./output/mobilenet",
+  "set_cfgs": ["ANCHOR_SCALES", "[8,16,32]", "ANCHOR_RATIOS", "[0.5,1,2]", "TRAIN.STEPSIZE", "50000"],
+  "gpus":"2"
+} 

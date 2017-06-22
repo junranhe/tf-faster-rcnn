@@ -18,6 +18,7 @@ import time, os, sys
 import tensorflow as tf
 from nets.mult_vgg16 import vgg16
 from nets.resnet_v1 import resnetv1
+from nets.mult_mobilenet import mobilenet
 
 def parse_args():
   """
@@ -96,6 +97,8 @@ if __name__ == '__main__':
     net = resnetv1(batch_size=1, num_layers=101)
   elif args.net == 'res152':
     net = resnetv1(batch_size=1, num_layers=152)
+  elif args.net == 'mobilenet':
+    net = mobilenet(batch_size=1)
   else:
     raise NotImplementedError
 

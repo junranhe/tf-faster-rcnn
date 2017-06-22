@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # --------------------------------------------------------
 # Tensorflow Faster R-CNN
 # Licensed under The MIT License [see LICENSE for details]
@@ -45,7 +46,8 @@ def mobilenet_v1_base(inputs,
                       depth_multiplier=1.0,
                       conv_defs=None,
                       output_stride=None,
-                      scope=None):
+                      scope=None,
+                      is_training=True):
   """Mobilenet v1.
   Constructs a Mobilenet v1 network from inputs to the given final endpoint.
   Args:
@@ -125,7 +127,8 @@ def mobilenet_v1_base(inputs,
           net = slim.conv2d(net, depth(conv_def.depth), conv_def.kernel,
                             stride=conv_def.stride,
                             normalizer_fn=slim.batch_norm,
-                            scope=end_point)
+                            scope=end_point,
+                            trainable=False) # 第一个卷积层使用来自image_net的参数不可变
           end_points[end_point] = net
           if end_point == final_endpoint:
             return net, end_points
@@ -140,7 +143,8 @@ def mobilenet_v1_base(inputs,
                                       stride=layer_stride,
                                       rate=layer_rate,
                                       normalizer_fn=slim.batch_norm,
-                                      scope=end_point)
+                                      scope=end_point,
+                                      trainable=is_training)
 
           end_points[end_point] = net
           if end_point == final_endpoint:
@@ -151,7 +155,8 @@ def mobilenet_v1_base(inputs,
           net = slim.conv2d(net, depth(conv_def.depth), [1, 1],
                             stride=1,
                             normalizer_fn=slim.batch_norm,
-                            scope=end_point)
+                            scope=end_point,
+                            trainable=is_training)
 
           end_points[end_point] = net
           if end_point == final_endpoint:
@@ -202,7 +207,7 @@ class mobilenet(object):
   def build_network(self, sess,mode,tag, anchor_scales, anchor_ratios, reuse=False, is_training=True):
     with tf.variable_scope('MobilenetV1', 'MobilenetV1', reuse=reuse) as scope:
       with slim.arg_scope([slim.batch_norm,slim.dropout],is_training=is_training):
-        net,end_points =  mobilenet_v1_base(self._image,scope=scope,final_endpoint='Conv2d_11_pointwise')
+        net,end_points =  mobilenet_v1_base(self._image,scope=scope,final_endpoint='Conv2d_11_pointwise',is_training=is_training)
         #self._act_summaries.append(net)
         self._layers['head'] = net
 # rcnn
@@ -233,9 +238,9 @@ class mobilenet(object):
         self._variables_to_fix[v.name] = v
         continue
       # exclude the first conv layer to swap RGB to BGR
-      #if v.name == 'MobilenetV1/Conv2d_0/weights:0':
-      #  self._variables_to_fix[v.name] = v
-      #  continue
+      if v.name == 'MobilenetV1/Conv2d_0/weights:0':
+        self._variables_to_fix[v.name] = v
+        continue
       if v.name.split(':')[0] in var_keep_dic:
         print('Varibles restored: %s' % v.name)
         variables_to_restore.append(v)
@@ -247,30 +252,14 @@ class mobilenet(object):
     print('Fix Mobilenet layers..')
     with tf.variable_scope('Fix_MobilenetV1') as scope:
       with tf.device("/cpu:0"):
-        pass
+        #pass
         # fix the MobilenetV1 issue from conv weights to fc weights
         # fix RGB to BGR
-        #conv_2d_11_pointwise_mult = tf.get_variable("conv_2d_11_pointwise_mult", [1, 1, 512, 512], trainable=False)
-        #conv_2d_0_mult = tf.get_variable("conv_2d_0_mult",[3, 3, 3, 32],trainable=False)
-        #restorer_fc = tf.train.Saver({"MobilenetV1/Conv2d_11_pointwise/weights": conv_2d_11_pointwise_mult,
-        #                              "MobilenetV1/Conv2d_0/weights":conv_2d_0_mult})
-        #restorer_fc.restore(sess, pretrained_model)
+        conv_2d_0_mult = tf.get_variable("conv_2d_0_mult",[3, 3, 3, 32],trainable=False)
+        restorer_fc = tf.train.Saver({"MobilenetV1/Conv2d_0/weights":conv_2d_0_mult})
+        restorer_fc.restore(sess, pretrained_model)
+
+        sess.run(tf.assign(self._variables_to_fix['MobilenetV1/Conv2d_0/weights:0'], 
+                            tf.reverse(conv_2d_0_mult, [2])))
 
 
-
-      
-        #fc6_conv = tf.get_variable("fc6_conv", [7, 7, 512, 4096], trainable=False)
-        #fc7_conv = tf.get_variable("fc7_conv", [1, 1, 4096, 4096], trainable=False)
-        #conv1_rgb = tf.get_variable("conv1_rgb", [3, 3, 3, 64], trainable=False)
-        #restorer_fc = tf.train.Saver({"vgg_16/fc6/weights": fc6_conv, 
-        #                              "vgg_16/fc7/weights": fc7_conv,
-        #                              "vgg_16/conv1/conv1_1/weights": conv1_rgb})
-        #restorer_fc.restore(sess, pretrained_model)
-        #sess.run(tf.assign(self._variables_to_fix['vgg_16/conv1/conv1_1/weights:0'], 
-        #                    tf.reverse(conv1_rgb, [2])))
-        #for task_id , _ in enumerate(self._tasks):
-        #  sess.run(tf.assign(self._variables_to_fix['vgg_16/branch_%d/fc6/weights:0' % task_id], tf.reshape(fc6_conv, 
-        #                    self._variables_to_fix['vgg_16/branch_%d/fc6/weights:0' % task_id].get_shape())))
-        #  sess.run(tf.assign(self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id], tf.reshape(fc7_conv, 
-        #                    self._variables_to_fix['vgg_16/branch_%d/fc7/weights:0' % task_id].get_shape())))
-      
