@@ -41,48 +41,41 @@ _CONV_DEFS = [
     DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
 ]
 
+_CONV_BRANCH_DEFS =  [
+    DepthSepConv(kernel=[3, 3], stride=2, depth=1024),
+    DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
+]
 
+BRANCH_START_IDX = 12
 
 def build_fc_net(rpn_pooled_net,is_training):
   print_shape(rpn_pooled_net)
-  pool_flat = slim.flatten(rpn_pooled_net, scope='flatten')
- 
-  fc7 = slim.fully_connected(pool_flat, 4096, scope='fc7')
-  if is_training:
-    fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
-  print_shape(fc7)
 
-  return fc7
+  net = rpn_pooled_net # fix a big bug here
+  with slim.arg_scope([slim.conv2d, slim.separable_conv2d], padding='SAME'):
+    for i, conv_def in enumerate(_CONV_BRANCH_DEFS):
+      end_point_base = 'Conv2d_%d' % (i + BRANCH_START_IDX) 
+      end_point = end_point_base + '_depthwise'
+      net = slim.separable_conv2d(net, None, conv_def.kernel,
+                                  depth_multiplier=1,
+                                  stride=conv_def.stride,
+                                  normalizer_fn=slim.batch_norm,
+                                  scope=end_point,
+                                  trainable=is_training)
+      print_shape(net)
+      end_point = end_point_base + '_pointwise'
+      net = slim.conv2d(net, conv_def.depth, [1, 1],
+                        stride=1,
+                        normalizer_fn=slim.batch_norm,
+                        scope=end_point,
+                        trainable=is_training)
+      print_shape(net)
 
-'''
-  #depth = lambda d: max(int(d * 1.0), 8)
-  #with slim.arg_scope([slim.conv2d, slim.separable_conv2d], padding='SAME'):
-  #  end_start_base = 12
-  #  for i, conv_def in enumerate(_CONV_FULL_DEFS):
-  #    end_point_base = 'Conv2d_%d' % (i + end_start_base) 
-  #    end_point = end_point_base + '_depthwise'
-  #    net = slim.separable_conv2d(rpn_pooled_net, None, conv_def.kernel,
-  #                                depth_multiplier=1,
-  #                                stride=conv_def.stride,
-  #                                normalizer_fn=slim.batch_norm,
-  #                                scope=end_point,
-  #                                trainable=is_training)
-  #    end_point = end_point_base + '_pointwise'
-  #    net = slim.conv2d(net, depth(conv_def.depth), [1, 1],
-  #                      stride=1,
-  #                      normalizer_fn=slim.batch_norm,
-  #                      scope=end_point,
-  #                      trainable=is_training)
+    fc7 = tf.reduce_mean(net,axis=[1,2])
+    print_shape(fc7)
+    return fc7
 
-  #  pool_flat = slim.flatten(net, scope='flatten')
-  #  fc7 = slim.fully_connected(pool_flat, 4096, scope='fc7')
-  #  if is_training:
-  #    fc7 = slim.dropout(fc7, keep_prob=0.5, is_training=True, scope='dropout7')
-  #  print_shape(fc7)
-
-  #  return fc7 
-'''
-
+    
 def mobilenet_v1_base(inputs,
                       final_endpoint='Conv2d_13_pointwise',
                       min_depth=8,
@@ -150,6 +143,7 @@ def mobilenet_v1_base(inputs,
       rate = 1
 
       net = inputs
+      print_shape(net,'input shape ')
       for i, conv_def in enumerate(conv_defs):
         end_point_base = 'Conv2d_%d' % i
         trainable_flag = True
@@ -178,6 +172,7 @@ def mobilenet_v1_base(inputs,
           end_points[end_point] = net
           if end_point == final_endpoint:
             return net, end_points
+          print_shape(net)
 
         elif isinstance(conv_def, DepthSepConv):
           end_point = end_point_base + '_depthwise'
@@ -195,6 +190,7 @@ def mobilenet_v1_base(inputs,
           end_points[end_point] = net
           if end_point == final_endpoint:
             return net, end_points
+          print_shape(net)
 
           end_point = end_point_base + '_pointwise'
 
@@ -207,6 +203,7 @@ def mobilenet_v1_base(inputs,
           end_points[end_point] = net
           if end_point == final_endpoint:
             return net, end_points
+          print_shape(net)
         else:
           raise ValueError('Unknown convolution type %s for layer %d'
                            % (conv_def.ltype, i))
@@ -245,7 +242,7 @@ class mobilenet(object):
 
     self._image = tf.placeholder(tf.float32, shape=[self._batch_size, None, None, 3])
     noreuse_list.append(self._image)
-    outputs = []
+
     with tf.variable_scope(tf.get_variable_scope(), noreuse_list, reuse=is_reuse):
       with slim.arg_scope(mult_network.faster_rcnn_arg_scope()):
         return self.build_network(sess, mode,tag, anchor_scales, anchor_ratios, reuse=is_reuse, is_training=(mode == 'TRAIN'))
@@ -271,67 +268,31 @@ class mobilenet(object):
 
   def get_variables_to_restore(self, variables, var_keep_dic):
     print('Get variable to restore For Mobilenet...')
-    #print('you have variables of name ....')
-    #for v in variables:
-    #  print('-----V : {}'.format(v.name))
+    print('You have variables : ')
+    for v in variables:
+      print('------ %s shape %s ---------' % (v.name,v.get_shape()) )
+    print('\n\n')
+
+    variables_in_branch = set() 
+    for task_id, task in enumerate(self._tasks):
+      for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/depthwise_weights:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/beta:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_mean:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_variance:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_pointwise/weights:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/beta:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_mean:0' % (task_id,net_idx))
+        variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_variance:0' % (task_id,net_idx))
 
     variables_to_restore = []
-    branch_weight_names = set()
-    #for task_id, task in enumerate(self._tasks):
-    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta:0' % task_id)
-    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/depthwise_weights:0' % task_id)
-    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta/Momentum:0' % task_id)
-    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/moving_mean:0' % task_id)
-    #  branch_weight_names.add('MobilenetV1/branch_%d/Conv2d_12_depthwise/BatchNorm/beta:0' % task_id)
-
-    #for branch_var in branch_weight_names:
-    #  print('variable {} in branch not to restore'.format(branch_var))
-    
-    weight_in_conv_13 = ['MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_variance:0',
-                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/ExponentialMovingAverage:[3, 3, 1024, 1]'
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_mean:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_variance:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_mean/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_mean/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/moving_variance/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_variance/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_pointwise/weights/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/beta:0',
-                         'MobilenetV1/Conv2d_13_pointwise/weights/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/gamma/RMSProp_1:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/gamma:0',
-                         'MobilenetV1/Conv2d_13_pointwise/weights/ExponentialMovingAverage:0',
-                         'MobilenetV1/Conv2d_13_depthwise/BatchNorm/beta/RMSProp:0',
-                         'MobilenetV1/Conv2d_13_pointwise/weights:0',
-                         'MobilenetV1/Conv2d_13_depthwise/depthwise_weights:0',
-                         'MobilenetV1/Conv2d_13_pointwise/BatchNorm/moving_mean:0']
-
     for v in variables:
-      # exclude the conv weights that are fc weights in vgg16
-      if v.name in branch_weight_names:
-        self._variables_to_fix[v.name] = v
-        continue
       # exclude the first conv layer to swap RGB to BGR
-
       if v.name == 'MobilenetV1/Conv2d_0/weights:0':
         self._variables_to_fix[v.name] = v
         continue
 
-      if v.name in weight_in_conv_13: # exclude the last conv layer
+      if v.name in variables_in_branch:
         self._variables_to_fix[v.name] = v
         continue
 
@@ -346,14 +307,87 @@ class mobilenet(object):
     print('Fix Mobilenet layers..')
     with tf.variable_scope('Fix_MobilenetV1') as scope:
       with tf.device("/cpu:0"):
-        #pass
         # fix the MobilenetV1 issue from conv weights to fc weights
         # fix RGB to BGR
         conv_2d_0_mult = tf.get_variable("conv_2d_0_mult",[3, 3, 3, 32],trainable=False)
-        restorer_fc = tf.train.Saver({"MobilenetV1/Conv2d_0/weights":conv_2d_0_mult})
-        restorer_fc.restore(sess, pretrained_model)
+        restorer_conv_rgb = tf.train.Saver({"MobilenetV1/Conv2d_0/weights":conv_2d_0_mult})
+        restorer_conv_rgb.restore(sess, pretrained_model)
 
         sess.run(tf.assign(self._variables_to_fix['MobilenetV1/Conv2d_0/weights:0'], 
                             tf.reverse(conv_2d_0_mult, [2])))
+        print('Conv_0 fixed')
 
+        # Fix the conv layer for branch
+        local_vars = locals()
+        net_idx = 12
+        local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]         =  tf.get_variable('Conv2d_%d_depthwise_depthwise_weights' % net_idx,[3, 3, 512, 1])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_beta' % net_idx, [512])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx,[512])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx,[512])
+        local_vars['Conv2d_%d_pointwise_weights' % net_idx]                   =  tf.get_variable('Conv2d_%d_pointwise_weights' % net_idx,[1, 1, 512, 1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_beta' % net_idx,[1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx,[1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx,[1024])
+
+        net_idx = 13
+        local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]         =  tf.get_variable('Conv2d_%d_depthwise_depthwise_weights' % net_idx,[3, 3, 1024, 1])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_beta' % net_idx,[1024])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx,[1024])
+        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx,[1024])
+        local_vars['Conv2d_%d_pointwise_weights' % net_idx]                   =  tf.get_variable('Conv2d_%d_pointwise_weights' % net_idx,[1, 1, 1024, 1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_beta' % net_idx,[1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx,[1024])
+        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx,[1024])
+
+        # branch varaible to restore
+        restore_branch_n2v = {}
+        for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/depthwise_weights' % net_idx] = local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]        
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/beta' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]           
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_mean' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]             
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_variance' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/weights' % net_idx] = local_vars['Conv2d_%d_pointwise_weights' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/beta' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_mean' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_variance' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx]
+
+                                                                             
+        restorer_conv_branch = tf.train.Saver(restore_branch_n2v)
+        restorer_conv_branch.restore(sess, pretrained_model)
+
+        for task_id , _ in enumerate(self._tasks):
+          for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/depthwise_weights:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/depthwise_weights:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/beta:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/beta:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_mean:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_mean:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_variance:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/moving_variance:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/weights:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_pointwise_weights' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/weights:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/beta:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/beta:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_mean:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_mean:0' % (task_id,net_idx)].get_shape() )))
+
+            sess.run(tf.assign(self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_variance:0' % (task_id,net_idx)],
+                                    tf.reshape(local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx],
+                                        self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_variance:0' % (task_id,net_idx)].get_shape() )))
+        
+        print('branch vars fixed')
 
