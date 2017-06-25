@@ -41,20 +41,43 @@ _CONV_DEFS = [
     DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
 ]
 
-_CONV_BRANCH_DEFS =  [
-    DepthSepConv(kernel=[3, 3], stride=2, depth=1024),
-    DepthSepConv(kernel=[3, 3], stride=1, depth=1024)
+Conv_Shape = namedtuple('Conv_Shape', ['beta_mean_vari'])
+DepthSepConv_Shape = namedtuple('DepthSepConv_Shape', ['dep_w', 'dep_beta_mean_vari','point_w','point_beta_mean_vari'])
+
+_CONV_SHAPES = [
+    Conv_Shape(beta_mean_vari=[32]),
+    DepthSepConv_Shape(dep_w=[3, 3, 32, 1],dep_beta_mean_vari=[32],point_w=[1, 1, 32, 64],point_beta_mean_vari=[64]),
+    DepthSepConv_Shape(dep_w=[3, 3, 64, 1],dep_beta_mean_vari=[64],point_w=[1, 1, 64, 128],point_beta_mean_vari=[128]),
+    DepthSepConv_Shape(dep_w=[3, 3, 128, 1],dep_beta_mean_vari=[128],point_w=[1, 1, 128, 128],point_beta_mean_vari=[128]),
+    DepthSepConv_Shape(dep_w=[3, 3, 128, 1],dep_beta_mean_vari=[128],point_w=[1, 1, 128, 256],point_beta_mean_vari=[256]),
+    DepthSepConv_Shape(dep_w=[3, 3, 256, 1],dep_beta_mean_vari=[256],point_w=[1, 1, 256, 256],point_beta_mean_vari=[256]),
+    DepthSepConv_Shape(dep_w=[3, 3, 256, 1],dep_beta_mean_vari=[256],point_w=[1, 1, 256, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 512],point_beta_mean_vari=[512]),
+    DepthSepConv_Shape(dep_w=[3, 3, 512, 1],dep_beta_mean_vari=[512],point_w=[1, 1, 512, 1024],point_beta_mean_vari=[1024]),   
+    DepthSepConv_Shape(dep_w=[3, 3, 1024, 1],dep_beta_mean_vari=[1024],point_w=[1, 1, 1024, 1024],point_beta_mean_vari=[1024])
 ]
 
 BRANCH_START_IDX = 12
 
-def build_fc_net(rpn_pooled_net,is_training):
-  print_shape(rpn_pooled_net)
+def build_fc_net_without_conv(rpn_pooled_net,is_training):
+  fc7 = tf.reduce_mean(rpn_pooled_net,axis=[1,2])
+  return fc7
 
-  net = rpn_pooled_net # fix a big bug here
+
+def build_fc_net(rpn_pooled_net,is_training,min_depth=8,depth_multiplier=1.0):
+  print_shape(rpn_pooled_net)
+  depth = lambda d: max(int(d * depth_multiplier), min_depth)
+
+  net = rpn_pooled_net #init net with head, fix a big bug here
+
   with slim.arg_scope([slim.conv2d, slim.separable_conv2d], padding='SAME'):
-    for i, conv_def in enumerate(_CONV_BRANCH_DEFS):
-      end_point_base = 'Conv2d_%d' % (i + BRANCH_START_IDX) 
+    for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
+      conv_def = _CONV_DEFS[net_idx]
+      end_point_base = 'Conv2d_%d' % net_idx
       end_point = end_point_base + '_depthwise'
       net = slim.separable_conv2d(net, None, conv_def.kernel,
                                   depth_multiplier=1,
@@ -63,6 +86,7 @@ def build_fc_net(rpn_pooled_net,is_training):
                                   scope=end_point,
                                   trainable=is_training)
       print_shape(net)
+
       end_point = end_point_base + '_pointwise'
       net = slim.conv2d(net, conv_def.depth, [1, 1],
                         stride=1,
@@ -146,7 +170,7 @@ def mobilenet_v1_base(inputs,
       print_shape(net,'input shape ')
       for i, conv_def in enumerate(conv_defs):
         end_point_base = 'Conv2d_%d' % i
-        trainable_flag = True
+        trainable_flag = is_training
         if(i<=2):
           trainable_flag = False
 
@@ -250,7 +274,7 @@ class mobilenet(object):
   def build_network(self, sess,mode,tag, anchor_scales, anchor_ratios, reuse=False, is_training=True):
     with tf.variable_scope('MobilenetV1', 'MobilenetV1', reuse=reuse) as scope:
       with slim.arg_scope([slim.batch_norm,slim.dropout],is_training=is_training):
-        net,end_points =  mobilenet_v1_base(self._image,scope=scope,final_endpoint='Conv2d_11_pointwise',is_training=is_training)
+        net,end_points =  mobilenet_v1_base(self._image, scope=scope, final_endpoint='Conv2d_%d_pointwise' % (BRANCH_START_IDX-1), is_training=is_training)
         #self._act_summaries.append(net)
         self._layers['head'] = net
 # rcnn
@@ -268,13 +292,13 @@ class mobilenet(object):
 
   def get_variables_to_restore(self, variables, var_keep_dic):
     print('Get variable to restore For Mobilenet...')
-    print('You have variables : ')
-    for v in variables:
-      print('------ %s shape %s ---------' % (v.name,v.get_shape()) )
-    print('\n\n')
+    #print('You have variables : ')
+    #for v in variables:
+    #  print('------ %s shape %s ---------' % (v.name,v.get_shape()) )
+    #print('\n\n')
 
     variables_in_branch = set() 
-    for task_id, task in enumerate(self._tasks):
+    for task_id, _ in enumerate(self._tasks):
       for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
         variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/depthwise_weights:0' % (task_id,net_idx))
         variables_in_branch.add('MobilenetV1/branch_%d/Conv2d_%d_depthwise/BatchNorm/beta:0' % (task_id,net_idx))
@@ -317,39 +341,32 @@ class mobilenet(object):
                             tf.reverse(conv_2d_0_mult, [2])))
         print('Conv_0 fixed')
 
+        #pass
+
         # Fix the conv layer for branch
         local_vars = locals()
-        net_idx = 12
-        local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]         =  tf.get_variable('Conv2d_%d_depthwise_depthwise_weights' % net_idx,[3, 3, 512, 1])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_beta' % net_idx, [512])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx,[512])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx,[512])
-        local_vars['Conv2d_%d_pointwise_weights' % net_idx]                   =  tf.get_variable('Conv2d_%d_pointwise_weights' % net_idx,[1, 1, 512, 1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_beta' % net_idx,[1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx,[1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx,[1024])
-
-        net_idx = 13
-        local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]         =  tf.get_variable('Conv2d_%d_depthwise_depthwise_weights' % net_idx,[3, 3, 1024, 1])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_beta' % net_idx,[1024])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx,[1024])
-        local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx,[1024])
-        local_vars['Conv2d_%d_pointwise_weights' % net_idx]                   =  tf.get_variable('Conv2d_%d_pointwise_weights' % net_idx,[1, 1, 1024, 1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_beta' % net_idx,[1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx,[1024])
-        local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx,[1024])
+        for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
+          conv_shape = _CONV_SHAPES[net_idx]
+          local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]         =  tf.get_variable('Conv2d_%d_depthwise_depthwise_weights' % net_idx, conv_shape.dep_w)
+          local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_beta' % net_idx, conv_shape.dep_beta_mean_vari)
+          local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx, conv_shape.dep_beta_mean_vari)
+          local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx, conv_shape.dep_beta_mean_vari)
+          local_vars['Conv2d_%d_pointwise_weights' % net_idx]                   =  tf.get_variable('Conv2d_%d_pointwise_weights' % net_idx, conv_shape.point_w)
+          local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]            =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_beta' % net_idx, conv_shape.point_beta_mean_vari)
+          local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]     =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx, conv_shape.point_beta_mean_vari)
+          local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx] =  tf.get_variable('Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx, conv_shape.point_beta_mean_vari)
 
         # branch varaible to restore
         restore_branch_n2v = {}
         for net_idx in range(BRANCH_START_IDX,len(_CONV_DEFS)):
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/depthwise_weights' % net_idx] = local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]        
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/beta' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]           
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_mean' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]             
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_variance' % net_idx] = local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx]
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/weights' % net_idx] = local_vars['Conv2d_%d_pointwise_weights' % net_idx]
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/beta' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_mean' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]
-          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_variance' % net_idx] = local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/depthwise_weights' % net_idx]         =  local_vars['Conv2d_%d_depthwise_depthwise_weights' % net_idx]        
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/beta' % net_idx]            =  local_vars['Conv2d_%d_depthwise_BatchNorm_beta' % net_idx]           
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_mean' % net_idx]     =  local_vars['Conv2d_%d_depthwise_BatchNorm_moving_mean' % net_idx]             
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_depthwise/BatchNorm/moving_variance' % net_idx] =  local_vars['Conv2d_%d_depthwise_BatchNorm_moving_variance' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/weights' % net_idx]                   =  local_vars['Conv2d_%d_pointwise_weights' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/beta' % net_idx]            =  local_vars['Conv2d_%d_pointwise_BatchNorm_beta' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_mean' % net_idx]     =  local_vars['Conv2d_%d_pointwise_BatchNorm_moving_mean' % net_idx]
+          restore_branch_n2v['MobilenetV1/Conv2d_%d_pointwise/BatchNorm/moving_variance' % net_idx] =  local_vars['Conv2d_%d_pointwise_BatchNorm_moving_variance' % net_idx]
 
                                                                              
         restorer_conv_branch = tf.train.Saver(restore_branch_n2v)
@@ -390,4 +407,5 @@ class mobilenet(object):
                                         self._variables_to_fix['MobilenetV1/branch_%d/Conv2d_%d_pointwise/BatchNorm/moving_variance:0' % (task_id,net_idx)].get_shape() )))
         
         print('branch vars fixed')
+
 
